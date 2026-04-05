@@ -1,6 +1,6 @@
 module github.com/bssm-oss/claudeCode-codex-
 
-go 1.26.0
+go 1.24.0
 
 require github.com/openai/openai-go/v3 v3.30.0
 

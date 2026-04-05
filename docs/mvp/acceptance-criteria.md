@@ -1,4 +1,4 @@
-# MVP acceptance criteria
+# Acceptance criteria
 
 The MVP is complete when all of the following are true:
 
