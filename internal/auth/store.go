@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,8 +222,10 @@ func RequestDeviceCode(ctx context.Context, issuerURL, clientID string) (DeviceC
 		return DeviceCode{}, fmt.Errorf("parse device code response: %w", err)
 	}
 	interval := 5
-	if parsed.Interval == "0" {
-		interval = 0
+	if parsed.Interval != "" {
+		if parsedValue, err := strconv.Atoi(strings.TrimSpace(parsed.Interval)); err == nil && parsedValue >= 0 {
+			interval = parsedValue
+		}
 	}
 
 	return DeviceCode{
