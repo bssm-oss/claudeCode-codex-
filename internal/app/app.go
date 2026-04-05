@@ -83,7 +83,7 @@ func (a *App) printHelp() error {
 Usage:
   ccagent help
   ccagent doctor
-  ccagent login [--api-key KEY]
+  ccagent login [--api-key KEY] [--device-auth] [--issuer URL] [--client-id ID]
   ccagent config
   ccagent chat [prompt]
 
@@ -107,7 +107,10 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, paths config.Pat
 		"config_file":    paths.ConfigFile,
 		"auth_file":      paths.AuthFile,
 		"transcript_dir": cfg.Transcripts,
-		"has_api_key":    strings.TrimSpace(creds.APIKey) != "",
+		"auth_mode":      creds.Mode(),
+		"has_api_key":    strings.TrimSpace(creds.OpenAIAPIKey) != "",
+		"has_chatgpt":    creds.HasChatGPTAccessToken(),
+		"account_id":     creds.AccountID(),
 		"is_git_repo":    gitClient.IsRepository(ctx),
 	}
 
@@ -121,15 +124,49 @@ func (a *App) runDoctor(ctx context.Context, cfg config.Config, paths config.Pat
 
 func (a *App) runLogin(paths config.Paths, args []string) error {
 	apiKey := ""
+	deviceAuth := false
+	issuerURL := auth.DefaultIssuerURL
+	clientID := auth.DefaultClientID
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--api-key" && i+1 < len(args) {
-			apiKey = args[i+1]
-			i++
+		switch args[i] {
+		case "--api-key":
+			if i+1 < len(args) {
+				apiKey = args[i+1]
+				i++
+			}
+		case "--device-auth":
+			deviceAuth = true
+		case "--issuer":
+			if i+1 < len(args) {
+				issuerURL = args[i+1]
+				i++
+			}
+		case "--client-id":
+			if i+1 < len(args) {
+				clientID = args[i+1]
+				i++
+			}
 		}
 	}
 
+	store := auth.NewStore(paths)
+	if deviceAuth {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		deviceCode, err := auth.RequestDeviceCode(ctx, issuerURL, clientID)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(a.out, "Open this URL and enter the code:\n%s\n\nCode: %s\n", deviceCode.VerificationURL, deviceCode.UserCode)
+		if err := store.CompleteDeviceCodeLogin(ctx, issuerURL, clientID, deviceCode); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(a.out, "Saved ChatGPT/Codex auth to %s\n", paths.AuthFile)
+		return err
+	}
+
 	if strings.TrimSpace(apiKey) == "" {
-		fmt.Fprint(a.out, "Enter OPENAI_API_KEY: ")
+		_, _ = fmt.Fprint(a.out, "Enter OPENAI_API_KEY: ")
 		scanner := bufio.NewScanner(a.in)
 		if !scanner.Scan() {
 			return errors.New("no api key provided")
@@ -137,7 +174,7 @@ func (a *App) runLogin(paths config.Paths, args []string) error {
 		apiKey = strings.TrimSpace(scanner.Text())
 	}
 
-	if err := auth.NewStore(paths).Save(auth.Credentials{APIKey: apiKey}); err != nil {
+	if err := store.Save(auth.Credentials{OpenAIAPIKey: apiKey}); err != nil {
 		return err
 	}
 
@@ -161,7 +198,7 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		return err
 	}
 
-	provider, err := openaiprovider.New(creds.APIKey, cfg.Model)
+	provider, err := openaiprovider.New(creds, cfg.Model)
 	if err != nil {
 		return err
 	}
@@ -175,20 +212,20 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 	if err != nil {
 		return err
 	}
-	defer transcript.Close()
+	defer func() { _ = transcript.Close() }()
 
 	gitClient := vcs.New(cfg.Workspace)
-	history := []openaiprovider.Message{{Role: "developer", Content: developerPrompt}}
 	reader := bufio.NewReader(a.in)
+	previousResponseID := ""
 
 	if strings.TrimSpace(initialPrompt) != "" {
-		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &history, initialPrompt)
+		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &previousResponseID, initialPrompt)
 	}
 
-	fmt.Fprintln(a.out, "ccagent chat started. Type /exit to leave.")
-	fmt.Fprintf(a.out, "Transcript: %s\n", transcript.Path())
+	_, _ = fmt.Fprintln(a.out, "ccagent chat started. Type /exit to leave.")
+	_, _ = fmt.Fprintf(a.out, "Transcript: %s\n", transcript.Path())
 	for {
-		fmt.Fprint(a.out, "> ")
+		_, _ = fmt.Fprint(a.out, "> ")
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -203,7 +240,7 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		if prompt == "/exit" || prompt == "/quit" {
 			return nil
 		}
-		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &history, prompt); err != nil {
+		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &previousResponseID, prompt); err != nil {
 			return err
 		}
 	}
@@ -216,41 +253,41 @@ func (a *App) runTurn(
 	ws workspace.Workspace,
 	gitClient vcs.Git,
 	transcript *session.Transcript,
-	history *[]openaiprovider.Message,
+	previousResponseID *string,
 	prompt string,
 ) error {
-	*history = append(*history, openaiprovider.Message{Role: "user", Content: prompt})
 	_ = transcript.Append("user", map[string]string{"prompt": prompt})
-
 	tools := toolDefinitions()
+	input := openaiprovider.TurnInput{PreviousResponseID: *previousResponseID, Prompt: prompt}
 
 	for i := 0; i < 8; i++ {
 		turnCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-		result, err := provider.Complete(turnCtx, *history, tools)
+		result, err := provider.Complete(turnCtx, input, developerPrompt, tools)
 		cancel()
 		if err != nil {
 			return err
 		}
+		*previousResponseID = result.ResponseID
 
 		if len(result.ToolCalls) == 0 {
 			if result.Text != "" {
-				fmt.Fprintln(a.out, result.Text)
+				_, _ = fmt.Fprintln(a.out, result.Text)
 				_ = transcript.Append("assistant", map[string]string{"content": result.Text})
-				*history = append(*history, openaiprovider.Message{Role: "assistant", Content: result.Text})
 			}
 			return nil
 		}
 
-		*history = append(*history, result.Message)
+		toolOutputs := make([]openaiprovider.ToolOutput, 0, len(result.ToolCalls))
 		for _, call := range result.ToolCalls {
 			toolOutput, err := a.executeTool(ctx, reader, ws, gitClient, call)
 			if err != nil {
 				toolOutput = fmt.Sprintf("tool error: %v", err)
 			}
-			fmt.Fprintf(a.out, "[tool:%s]\n%s\n", call.Name, toolOutput)
+			_, _ = fmt.Fprintf(a.out, "[tool:%s]\n%s\n", call.Name, toolOutput)
 			_ = transcript.Append("tool", map[string]string{"name": call.Name, "output": toolOutput})
-			*history = append(*history, openaiprovider.Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: toolOutput})
+			toolOutputs = append(toolOutputs, openaiprovider.ToolOutput{CallID: call.ID, Output: toolOutput})
 		}
+		input = openaiprovider.TurnInput{PreviousResponseID: result.ResponseID, ToolOutputs: toolOutputs}
 	}
 
 	return errors.New("model exceeded tool loop limit")
@@ -317,8 +354,7 @@ func (a *App) executeTool(ctx context.Context, reader *bufio.Reader, ws workspac
 			CreateIfMissing bool   `json:"create_if_missing"`
 		}
 		_ = json.Unmarshal(call.Arguments, &args)
-		previewTarget := fmt.Sprintf("Edit file %s?", args.Path)
-		if err := a.confirm(reader, previewTarget); err != nil {
+		if err := a.confirm(reader, fmt.Sprintf("Edit file %s?", args.Path)); err != nil {
 			return "", err
 		}
 		return ws.Replace(args.Path, args.OldText, args.NewText, args.CreateIfMissing)
@@ -353,7 +389,7 @@ func (a *App) executeTool(ctx context.Context, reader *bufio.Reader, ws workspac
 }
 
 func (a *App) confirm(reader *bufio.Reader, prompt string) error {
-	fmt.Fprintf(a.out, "%s [y/N]: ", prompt)
+	_, _ = fmt.Fprintf(a.out, "%s [y/N]: ", prompt)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("read approval: %w", err)
