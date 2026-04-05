@@ -2,7 +2,7 @@
 
 ccagent is a clean-room Go terminal coding agent built for repository-aware coding workflows on top of OpenAI and Codex-compatible backends. It is inspired by the public behavior of terminal coding agents, but it does not reuse proprietary Claude Code source code, prompts, tests, or hidden interfaces.
 
-## Current MVP scope
+## Current scope
 
 This repository ships a production-oriented bootstrap for a terminal agent that can:
 
@@ -114,7 +114,7 @@ make build
 
 GitHub Actions runs formatting checks, unit tests, linting, and a full build on pushes and pull requests.
 
-## Roadmap after MVP
+## Planned next steps
 
 - richer transcript and session replay support
 - stronger diff previews for file updates
