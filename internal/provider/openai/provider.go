@@ -109,9 +109,15 @@ type responsesOutputText struct {
 	Text string `json:"text"`
 }
 
-func New(creds auth.Credentials, model string) (*Client, error) {
+func New(creds auth.Credentials, model, openAIBaseURL, chatGPTBaseURL string) (*Client, error) {
 	if strings.TrimSpace(model) == "" {
 		model = defaultModel
+	}
+	if strings.TrimSpace(openAIBaseURL) == "" {
+		openAIBaseURL = defaultOpenAIBaseURL
+	}
+	if strings.TrimSpace(chatGPTBaseURL) == "" {
+		chatGPTBaseURL = defaultChatGPTBaseURL
 	}
 
 	switch creds.Mode() {
@@ -123,7 +129,7 @@ func New(creds auth.Credentials, model string) (*Client, error) {
 			httpClient:  &http.Client{Timeout: 90 * time.Second},
 			credentials: creds,
 			model:       model,
-			baseURL:     defaultOpenAIBaseURL,
+			baseURL:     openAIBaseURL,
 		}, nil
 	case auth.ModeChatGPT:
 		if !creds.HasChatGPTAccessToken() {
@@ -136,7 +142,7 @@ func New(creds auth.Credentials, model string) (*Client, error) {
 			httpClient:  &http.Client{Timeout: 90 * time.Second},
 			credentials: creds,
 			model:       model,
-			baseURL:     defaultChatGPTBaseURL,
+			baseURL:     chatGPTBaseURL,
 			chatMode:    true,
 		}, nil
 	default:
