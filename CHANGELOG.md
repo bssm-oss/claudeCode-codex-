@@ -3,5 +3,5 @@
 ## Unreleased
 
 - bootstrapped a clean-room Go terminal coding agent project
-- added configuration, auth storage, workspace tools, git helpers, and transcript logging
+- added Codex-compatible auth storage, device-auth login, dual backend provider routing, workspace tools, git helpers, and transcript logging
 - added docs, ADRs, tests, and CI scaffolding

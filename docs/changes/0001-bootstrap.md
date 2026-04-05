@@ -2,7 +2,7 @@
 
 ## Summary
 
-Created the initial clean-room repository structure for `ccagent`, including configuration, auth persistence, workspace tooling, local git helpers, transcript logging, docs, tests, and CI.
+Created the initial clean-room repository structure for `ccagent`, then extended it with Codex-compatible `auth.json` storage, ChatGPT/Codex device-auth support, a dual-backend `/responses` provider, workspace tooling, local git helpers, transcript logging, docs, tests, and CI.
 
 ## Why
 

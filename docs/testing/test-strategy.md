@@ -1,3 +1,3 @@
 # Test strategy
 
-This repository uses fast unit tests for configuration, auth persistence, workspace boundaries, and git wrapper behavior. Networked OpenAI calls are intentionally excluded from default CI and should be exercised manually with real credentials during local QA.
+This repository uses fast unit and functional tests for configuration, auth persistence, workspace boundaries, git wrapper behavior, provider request construction, and device-auth login against mock HTTP servers. Real networked OpenAI and ChatGPT logins remain manual QA concerns, but CI still exercises the local functional path with mocks.

@@ -99,7 +99,7 @@ func (w Workspace) Read(path string, offset, limit int) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if offset < 1 {
 		offset = 1
@@ -164,7 +164,7 @@ func (w Workspace) Search(pattern string, maxMatches int) ([]SearchResult, error
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		lineNo := 0
