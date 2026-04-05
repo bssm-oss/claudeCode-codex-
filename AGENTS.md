@@ -1,42 +1,42 @@
 # AGENTS.md
 
-## Mission
+## 미션
 
-Build and maintain `ccagent` as a clean-room, Go-native terminal coding agent with strong documentation, explicit approval gates, and auditable local behavior.
+`ccagent`를 강한 문서화, 명시적 승인 게이트, 감사 가능한 로컬 동작을 갖춘 클린룸 방식의 Go 네이티브 터미널 코딩 에이전트로 구축하고 유지합니다.
 
-## Hard rules
+## 강한 규칙
 
-1. Do not copy source code, prompts, tests, or hidden interfaces from `anthropics/claude-code`.
-2. Do not implement unofficial browser OAuth, token scraping, or undocumented private APIs.
-3. Keep writes, shell execution, branch creation, and commits behind explicit approval unless the user requested trusted automation.
-4. Keep credentials and transcripts out of version control.
-5. Match changes with tests and docs in the same workstream.
+1. `anthropics/claude-code`의 소스 코드, 프롬프트, 테스트, 숨겨진 인터페이스를 복사하지 않습니다.
+2. 비공식 브라우저 OAuth, 토큰 스크래핑, 문서화되지 않은 비공개 API를 구현하지 않습니다.
+3. 사용자가 신뢰 자동화를 명시적으로 요청하지 않은 한, 쓰기 작업, shell 실행, 브랜치 생성, 커밋은 모두 명시적 승인 뒤에서만 수행합니다.
+4. 자격 증명과 transcript는 버전 관리에 포함하지 않습니다.
+5. 변경 사항은 같은 작업 흐름 안에서 테스트와 문서 업데이트를 함께 맞춥니다.
 
-## Repository workflow
+## 저장소 워크플로
 
-- Prefer small, reviewable commits.
-- Update `docs/changes/` for meaningful architecture or behavior changes.
-- Preserve a passing tree: `go test ./...` and `go build ./...` must pass before merge.
-- Keep README and ADRs aligned with actual behavior.
+- 작고 리뷰하기 쉬운 커밋을 선호합니다.
+- 의미 있는 아키텍처 변경이나 동작 변경이 있으면 `docs/changes/`를 업데이트합니다.
+- 항상 통과하는 트리를 유지합니다. 머지 전에는 `go test ./...`와 `go build ./...`가 반드시 통과해야 합니다.
+- README와 ADR이 실제 동작과 일치하도록 유지합니다.
 
-## Architecture rules
+## 아키텍처 규칙
 
-- `internal/app` owns command orchestration and tool loop behavior.
-- `internal/provider` owns model integration only.
-- `internal/auth` owns credential loading and persistence only.
-- `internal/workspace` owns path safety, reads, writes, and search behavior.
-- `internal/vcs` owns local git interactions only.
-- Future GitHub PR support must live in a separate package and auth boundary.
+- `internal/app`은 명령 오케스트레이션과 도구 루프 동작을 담당합니다.
+- `internal/provider`는 모델 연동만 담당합니다.
+- `internal/auth`는 자격 증명 로딩과 저장만 담당합니다.
+- `internal/workspace`는 경로 안전성, 읽기, 쓰기, 검색 동작을 담당합니다.
+- `internal/vcs`는 로컬 git 상호작용만 담당합니다.
+- 향후 GitHub PR 지원은 별도 패키지와 별도 인증 경계 안에 있어야 합니다.
 
-## Testing rules
+## 테스트 규칙
 
-- Add unit tests for config, auth, workspace, and git boundaries.
-- Use `testdata/` fixtures for repeatable workspace and patch behavior.
-- Keep networked API checks optional and environment-gated.
+- config, auth, workspace, git 경계에 대한 단위 테스트를 추가합니다.
+- 반복 가능한 workspace 및 patch 동작 검증을 위해 `testdata/` fixture를 사용합니다.
+- 네트워크를 사용하는 API 검사는 선택 사항으로 두고 환경 변수로 게이트합니다.
 
-## Documentation rules
+## 문서 규칙
 
-- ADRs live under `docs/adr/`.
-- change notes live under `docs/changes/`.
-- acceptance criteria live under `docs/mvp/`.
-- CI policy and test strategy live under `docs/ci/` and `docs/testing/`.
+- ADR은 `docs/adr/` 아래에 둡니다.
+- change note는 `docs/changes/` 아래에 둡니다.
+- 승인 기준은 `docs/mvp/` 아래에 둡니다.
+- CI 정책과 테스트 전략은 `docs/ci/` 및 `docs/testing/` 아래에 둡니다.
