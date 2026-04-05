@@ -2,6 +2,7 @@
 .idea/
 .sisyphus/
 claude-code-upstream/
+openai-codex-upstream/
 bin/
 dist/
 coverage.out

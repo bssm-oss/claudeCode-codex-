@@ -1,14 +1,23 @@
 package openaiprovider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
-	openai "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
+	"github.com/bssm-oss/claudeCode-codex-/internal/auth"
+)
+
+const (
+	defaultModel          = "gpt-5.4-mini"
+	defaultOpenAIBaseURL  = "https://api.openai.com/v1"
+	defaultChatGPTBaseURL = "https://chatgpt.com/backend-api/codex"
 )
 
 type Tool struct {
@@ -23,123 +32,224 @@ type ToolCall struct {
 	Arguments json.RawMessage
 }
 
-type Message struct {
-	Role       string
-	Content    string
-	ToolCallID string
-	ToolName   string
-	ToolCalls  []ToolCall
+type ToolOutput struct {
+	CallID string
+	Output string
+}
+
+type TurnInput struct {
+	PreviousResponseID string
+	Prompt             string
+	ToolOutputs        []ToolOutput
 }
 
 type TurnResult struct {
-	Text      string
-	ToolCalls []ToolCall
-	Message   Message
+	ResponseID string
+	Text       string
+	ToolCalls  []ToolCall
 }
 
 type Client struct {
-	inner *openai.Client
-	model string
+	httpClient  *http.Client
+	credentials auth.Credentials
+	model       string
+	baseURL     string
+	chatMode    bool
 }
 
-func New(apiKey, model string) (*Client, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, errors.New("missing OPENAI_API_KEY or saved API key")
-	}
+type responsesRequest struct {
+	Model              string              `json:"model"`
+	Instructions       string              `json:"instructions"`
+	PreviousResponseID string              `json:"previous_response_id,omitempty"`
+	Input              []responseInputItem `json:"input"`
+	Tools              []responseTool      `json:"tools,omitempty"`
+	ToolChoice         string              `json:"tool_choice,omitempty"`
+	ParallelToolCalls  bool                `json:"parallel_tool_calls"`
+	Store              bool                `json:"store"`
+	Stream             bool                `json:"stream"`
+	Include            []string            `json:"include,omitempty"`
+}
+
+type responseInputItem struct {
+	Type    string                `json:"type"`
+	Role    string                `json:"role,omitempty"`
+	Content []responseContentItem `json:"content,omitempty"`
+	CallID  string                `json:"call_id,omitempty"`
+	Output  string                `json:"output,omitempty"`
+}
+
+type responseContentItem struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type responseTool struct {
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+type responsesResponse struct {
+	ID     string                `json:"id"`
+	Output []responsesOutputItem `json:"output"`
+}
+
+type responsesOutputItem struct {
+	Type      string                `json:"type"`
+	Role      string                `json:"role,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Arguments string                `json:"arguments,omitempty"`
+	CallID    string                `json:"call_id,omitempty"`
+	Content   []responsesOutputText `json:"content,omitempty"`
+}
+
+type responsesOutputText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func New(creds auth.Credentials, model string) (*Client, error) {
 	if strings.TrimSpace(model) == "" {
-		model = "gpt-5.4-mini"
+		model = defaultModel
 	}
-	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithMaxRetries(2))
-	return &Client{inner: &client, model: model}, nil
+
+	switch creds.Mode() {
+	case auth.ModeAPIKey:
+		if strings.TrimSpace(creds.OpenAIAPIKey) == "" {
+			return nil, errors.New("missing OPENAI_API_KEY or saved API key")
+		}
+		return &Client{
+			httpClient:  &http.Client{Timeout: 90 * time.Second},
+			credentials: creds,
+			model:       model,
+			baseURL:     defaultOpenAIBaseURL,
+		}, nil
+	case auth.ModeChatGPT:
+		if !creds.HasChatGPTAccessToken() {
+			return nil, errors.New("missing ChatGPT access token in auth.json")
+		}
+		if strings.TrimSpace(creds.AccountID()) == "" {
+			return nil, errors.New("missing ChatGPT account id in auth.json")
+		}
+		return &Client{
+			httpClient:  &http.Client{Timeout: 90 * time.Second},
+			credentials: creds,
+			model:       model,
+			baseURL:     defaultChatGPTBaseURL,
+			chatMode:    true,
+		}, nil
+	default:
+		return nil, errors.New("no supported auth mode is configured")
+	}
 }
 
-func (c *Client) Complete(ctx context.Context, messages []Message, tools []Tool) (TurnResult, error) {
-	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(c.model),
-		Messages: buildMessages(messages),
-		Tools:    buildTools(tools),
+func (c *Client) Complete(ctx context.Context, input TurnInput, instructions string, tools []Tool) (TurnResult, error) {
+	requestBody := responsesRequest{
+		Model:              c.model,
+		Instructions:       instructions,
+		PreviousResponseID: input.PreviousResponseID,
+		Input:              buildInputItems(input),
+		Tools:              buildTools(tools),
+		ToolChoice:         "auto",
+		ParallelToolCalls:  false,
+		Store:              false,
+		Stream:             false,
+	}
+	if c.chatMode {
+		requestBody.Include = []string{"reasoning.encrypted_content"}
 	}
 
-	completion, err := c.inner.Chat.Completions.New(ctx, params)
+	payload, err := json.Marshal(requestBody)
 	if err != nil {
-		return TurnResult{}, fmt.Errorf("create completion: %w", err)
+		return TurnResult{}, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	message := completion.Choices[0].Message
-	result := TurnResult{
-		Text: strings.TrimSpace(message.Content),
-		Message: Message{
-			Role:    "assistant",
-			Content: strings.TrimSpace(message.Content),
-		},
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("build responses request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.credentials.BearerToken())
+	if c.chatMode {
+		request.Header.Set("ChatGPT-Account-ID", c.credentials.AccountID())
 	}
 
-	for _, toolCall := range message.ToolCalls {
-		if toolCall.Function.Name == "" {
-			continue
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("execute responses request: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("read responses body: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return TurnResult{}, fmt.Errorf("responses request failed: status=%d body=%s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed responsesResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return TurnResult{}, fmt.Errorf("parse responses body: %w", err)
+	}
+
+	result := TurnResult{ResponseID: parsed.ID}
+	for _, item := range parsed.Output {
+		switch item.Type {
+		case "message":
+			for _, content := range item.Content {
+				if content.Type == "output_text" {
+					if result.Text != "" {
+						result.Text += "\n"
+					}
+					result.Text += content.Text
+				}
+			}
+		case "function_call":
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
+				ID:        item.CallID,
+				Name:      item.Name,
+				Arguments: json.RawMessage(item.Arguments),
+			})
 		}
-		call := ToolCall{
-			ID:        toolCall.ID,
-			Name:      toolCall.Function.Name,
-			Arguments: json.RawMessage(toolCall.Function.Arguments),
-		}
-		result.ToolCalls = append(result.ToolCalls, call)
-		result.Message.ToolCalls = append(result.Message.ToolCalls, call)
 	}
 
 	return result, nil
 }
 
-func buildMessages(history []Message) []openai.ChatCompletionMessageParamUnion {
-	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(history))
-	for _, msg := range history {
-		switch msg.Role {
-		case "developer":
-			messages = append(messages, openai.DeveloperMessage(msg.Content))
-		case "assistant":
-			if len(msg.ToolCalls) == 0 {
-				messages = append(messages, openai.AssistantMessage(msg.Content))
-				continue
-			}
-
-			toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, 0, len(msg.ToolCalls))
-			for _, call := range msg.ToolCalls {
-				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-						ID: call.ID,
-						Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-							Name:      call.Name,
-							Arguments: string(call.Arguments),
-						},
-						Type: "function",
-					},
-				})
-			}
-			assistant := &openai.ChatCompletionAssistantMessageParam{
-				Role:      "assistant",
-				ToolCalls: toolCalls,
-			}
-			if msg.Content != "" {
-				assistant.Content = openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(msg.Content)}
-			}
-			messages = append(messages, openai.ChatCompletionMessageParamUnion{OfAssistant: assistant})
-		case "tool":
-			messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
-		default:
-			messages = append(messages, openai.UserMessage(msg.Content))
-		}
+func buildInputItems(input TurnInput) []responseInputItem {
+	items := make([]responseInputItem, 0, len(input.ToolOutputs)+1)
+	if strings.TrimSpace(input.Prompt) != "" {
+		items = append(items, responseInputItem{
+			Type: "message",
+			Role: "user",
+			Content: []responseContentItem{{
+				Type: "input_text",
+				Text: input.Prompt,
+			}},
+		})
 	}
-	return messages
+	for _, output := range input.ToolOutputs {
+		items = append(items, responseInputItem{
+			Type:   "function_call_output",
+			CallID: output.CallID,
+			Output: output.Output,
+		})
+	}
+	return items
 }
 
-func buildTools(tools []Tool) []openai.ChatCompletionToolUnionParam {
-	result := make([]openai.ChatCompletionToolUnionParam, 0, len(tools))
+func buildTools(tools []Tool) []responseTool {
+	result := make([]responseTool, 0, len(tools))
 	for _, tool := range tools {
-		result = append(result, openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+		result = append(result, responseTool{
+			Type:        "function",
 			Name:        tool.Name,
-			Description: openai.String(tool.Description),
+			Description: tool.Description,
 			Parameters:  tool.Schema,
-		}))
+		})
 	}
 	return result
 }
