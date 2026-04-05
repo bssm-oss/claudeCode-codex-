@@ -1,15 +1,15 @@
-# ADR 003: Explicit approval for risky actions
+# ADR 003: 위험 작업에 대한 명시적 승인
 
-## Status
+## 상태
 
-Accepted.
+채택됨.
 
-## Decision
+## 결정
 
-The agent may read and inspect freely inside the workspace, but shell execution, file mutation, branch creation, and commits require explicit operator approval.
+에이전트는 워크스페이스 안에서 자유롭게 읽고 탐색할 수 있지만, shell 실행, 파일 변경, 브랜치 생성, 커밋은 모두 명시적인 사용자 승인이 필요합니다.
 
-## Consequences
+## 결과
 
-- the model can stay useful without becoming silently destructive
-- auditability is improved through transcript logging and approval prompts
-- future trusted automation modes must be explicit configuration decisions
+- 모델이 조용히 파괴적인 동작을 하지 않으면서도 유용성을 유지할 수 있습니다.
+- transcript 로깅과 승인 프롬프트를 통해 감사 가능성이 높아집니다.
+- 향후 신뢰 자동화 모드는 반드시 명시적인 설정 결정이어야 합니다.
