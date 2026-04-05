@@ -1,15 +1,15 @@
-# ADR 001: Clean-room implementation policy
+# ADR 001: 클린룸 구현 정책
 
-## Status
+## 상태
 
-Accepted.
+채택됨.
 
-## Decision
+## 결정
 
-This repository will not copy or adapt proprietary Claude Code implementation assets. Development is limited to original Go code informed by public documentation, observed product behavior, and first-principles design.
+이 저장소는 Claude Code의 독점 구현 자산을 복사하거나 변형하지 않습니다. 개발은 공개 문서, 관찰 가능한 제품 동작, 그리고 원칙 기반 설계를 바탕으로 한 독창적인 Go 코드에 한정합니다.
 
-## Consequences
+## 결과
 
-- public behavior can guide UX
-- source code, prompts, tests, and internal schemas remain off limits
-- implementation decisions must be documented independently in this repository
+- 공개적으로 관찰 가능한 동작은 UX 설계에 참고할 수 있습니다.
+- 소스 코드, 프롬프트, 테스트, 내부 스키마는 계속 금지 대상입니다.
+- 구현 결정은 이 저장소 안에서 독립적으로 문서화되어야 합니다.
