@@ -1,20 +1,20 @@
-# ADR 002: Dual-mode OpenAI auth boundary
+# ADR 002: 이중 모드 OpenAI 인증 경계
 
-## Status
+## 상태
 
-Accepted.
+채택됨.
 
-## Decision
+## 결정
 
-The agent supports two documented OpenAI-backed auth modes:
+이 에이전트는 문서화된 두 가지 OpenAI 기반 인증 모드를 지원합니다.
 
-- API-key auth against `https://api.openai.com/v1`
-- ChatGPT/Codex device auth against the Codex backend contract used by the open-source Codex client
+- `https://api.openai.com/v1`에 대한 API-key 인증
+- 오픈소스 Codex 클라이언트가 사용하는 Codex 백엔드 계약에 대한 ChatGPT/Codex device 인증
 
-Auth remains isolated behind `internal/auth`, while `internal/provider` chooses the correct base URL and headers from the loaded credential mode.
+인증은 `internal/auth` 뒤에 격리해 두고, `internal/provider`가 로드된 자격 증명 모드에 따라 올바른 base URL과 헤더를 선택합니다.
 
-## Consequences
+## 결과
 
-- `OPENAI_API_KEY` and a Codex-compatible `auth.json` are both first-class
-- device-code login is supported through public Codex auth endpoints
-- future alternative auth methods must remain provider-specific and documented
+- `OPENAI_API_KEY`와 Codex 호환 `auth.json`은 모두 1급 지원 대상입니다.
+- device-code 로그인은 공개 Codex auth 엔드포인트를 통해 지원합니다.
+- 향후 대체 인증 방식도 반드시 provider별로 분리되고 문서화되어야 합니다.
