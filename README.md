@@ -1,21 +1,22 @@
 # ccagent
 
-ccagent is a clean-room Go terminal coding agent built for repository-aware coding workflows on top of OpenAI APIs. It is inspired by the public behavior of terminal coding agents, but it does not reuse proprietary Claude Code source code, prompts, tests, or hidden interfaces.
+ccagent is a clean-room Go terminal coding agent built for repository-aware coding workflows on top of OpenAI and Codex-compatible backends. It is inspired by the public behavior of terminal coding agents, but it does not reuse proprietary Claude Code source code, prompts, tests, or hidden interfaces.
 
 ## Current MVP scope
 
 This repository ships a production-oriented bootstrap for a terminal agent that can:
 
 - load configuration from a user config file
-- authenticate with an API key via `OPENAI_API_KEY` or a local auth file
-- run an interactive `chat` session against the OpenAI API
+- authenticate with either an API key or Codex/ChatGPT device auth through a local `auth.json`
+- run an interactive `chat` session against OpenAI or the Codex backend
+- route ChatGPT-authenticated sessions to the Codex responses endpoint
 - inspect the current workspace with file listing, file reading, and regex search tools
 - run shell commands with explicit approval
 - update files with explicit approval
 - inspect local git state and optionally create branches or commits with approval
 - persist transcripts locally for auditability
 
-The current MVP intentionally does **not** implement undocumented browser OAuth flows for third-party clients. The architecture keeps auth behind a boundary so a documented future browser/device flow can be added safely.
+The repository now includes the documented device-code login surface used by the open-source Codex client. API-key auth remains available, and ChatGPT-authenticated sessions are stored in a Codex-compatible `auth.json` layout.
 
 ## Clean-room policy
 
@@ -53,6 +54,14 @@ Or store it locally:
 go run ./cmd/ccagent login --api-key "your-api-key"
 ```
 
+### Sign in with Codex device auth
+
+```bash
+go run ./cmd/ccagent login --device-auth
+```
+
+This follows the public Codex device-auth flow and stores the resulting token bundle in the local auth file.
+
 ### Run diagnostics
 
 ```bash
@@ -76,6 +85,7 @@ go run ./cmd/ccagent chat "Summarize the current repository."
 - `ccagent help` — command overview
 - `ccagent doctor` — local configuration and auth diagnostics
 - `ccagent login --api-key KEY` — persist an API key locally
+- `ccagent login --device-auth` — complete a Codex-compatible device login flow
 - `ccagent config` — print the resolved config
 - `ccagent chat [prompt]` — start an interactive or one-shot session
 
@@ -90,7 +100,7 @@ ccagent stores local user state under:
 └── transcripts/
 ```
 
-`auth.json` contains a bearer credential and must be treated like a password.
+`auth.json` contains bearer credentials and must be treated like a password.
 
 ## Development
 
@@ -102,7 +112,7 @@ make build
 
 ## CI
 
-GitHub Actions runs formatting checks, unit tests, and a full build on pushes and pull requests.
+GitHub Actions runs formatting checks, unit tests, linting, and a full build on pushes and pull requests.
 
 ## Roadmap after MVP
 

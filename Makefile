@@ -1,12 +1,15 @@
 APP_NAME := ccagent
 
-.PHONY: fmt test build run doctor
+.PHONY: fmt test build run doctor lint
 
 fmt:
 	go fmt ./...
 
 test:
 	go test ./...
+
+lint:
+	golangci-lint run ./...
 
 build:
 	go build ./...

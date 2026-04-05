@@ -17,6 +17,11 @@ jobs:
         with:
           go-version: '1.26.0'
 
+      - name: Setup golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.2.2
+
       - name: Verify formatting
         run: |
           files=$(gofmt -l .)
@@ -28,6 +33,9 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Lint
+        run: golangci-lint run ./...
 
       - name: Build
         run: go build ./...
