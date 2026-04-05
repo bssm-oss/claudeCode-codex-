@@ -4,7 +4,7 @@ ccagent is a clean-room Go terminal coding agent built for repository-aware codi
 
 ## Current scope
 
-This repository ships a production-oriented bootstrap for a terminal agent that can:
+This repository ships a production-oriented terminal coding agent that can:
 
 - load configuration from a user config file
 - authenticate with either an API key or Codex/ChatGPT device auth through a local `auth.json`
