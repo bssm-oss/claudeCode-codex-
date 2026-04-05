@@ -1,97 +1,97 @@
 # ccagent
 
-ccagent is a clean-room Go terminal coding agent built for repository-aware coding workflows on top of OpenAI and Codex-compatible backends. It is inspired by the public behavior of terminal coding agents, but it does not reuse proprietary Claude Code source code, prompts, tests, or hidden interfaces.
+ccagent는 OpenAI 및 Codex 호환 백엔드 위에서 동작하도록 만든 클린룸(clean-room) 방식의 Go 기반 터미널 코딩 에이전트입니다. 공개적으로 관찰 가능한 터미널 코딩 에이전트의 동작 방식을 참고했지만, Claude Code의 독점 소스 코드, 프롬프트, 테스트, 숨겨진 인터페이스는 재사용하지 않습니다.
 
-## Current scope
+## 현재 범위
 
-This repository ships a production-oriented terminal coding agent that can:
+이 저장소에는 다음 기능을 제공하는 프로덕션 지향 터미널 코딩 에이전트가 포함되어 있습니다.
 
-- load configuration from a user config file
-- authenticate with either an API key or Codex/ChatGPT device auth through a local `auth.json`
-- run an interactive `chat` session against OpenAI or the Codex backend
-- route ChatGPT-authenticated sessions to the Codex responses endpoint
-- inspect the current workspace with file listing, file reading, and regex search tools
-- run shell commands with explicit approval
-- update files with explicit approval
-- inspect local git state and optionally create branches or commits with approval
-- persist transcripts locally for auditability
+- 사용자 설정 파일에서 구성을 불러옵니다.
+- 로컬 `auth.json`을 통해 API 키 또는 Codex/ChatGPT device auth로 인증합니다.
+- OpenAI 또는 Codex 백엔드에 대해 대화형 `chat` 세션을 실행합니다.
+- ChatGPT로 인증된 세션을 Codex responses 엔드포인트로 라우팅합니다.
+- 파일 목록, 파일 읽기, 정규식 검색 도구로 현재 워크스페이스를 탐색합니다.
+- 명시적인 승인 후 shell 명령을 실행합니다.
+- 명시적인 승인 후 파일을 수정합니다.
+- 로컬 git 상태를 확인하고, 승인 후 브랜치 생성이나 커밋을 수행할 수 있습니다.
+- 감사 가능성을 위해 transcript를 로컬에 저장합니다.
 
-The repository now includes the documented device-code login surface used by the open-source Codex client. API-key auth remains available, and ChatGPT-authenticated sessions are stored in a Codex-compatible `auth.json` layout.
+이 저장소는 이제 오픈소스 Codex 클라이언트가 사용하는 문서화된 device-code 로그인 흐름을 포함합니다. API-key 인증도 계속 지원하며, ChatGPT 인증 세션은 Codex 호환 `auth.json` 형식으로 저장됩니다.
 
-## Clean-room policy
+## 클린룸 정책
 
-This project is developed under a clean-room rule set.
+이 프로젝트는 클린룸 규칙에 따라 개발됩니다.
 
-- Allowed inputs: public product documentation, publicly observable behaviors, and original implementation work.
-- Forbidden inputs: proprietary Claude Code source code reuse, copied prompts, copied tests, copied internal APIs, and line-by-line structural mimicry.
+- 허용되는 입력: 공개 제품 문서, 공개적으로 관찰 가능한 동작, 그리고 직접 작성한 구현 작업
+- 금지되는 입력: Claude Code의 독점 소스 코드 재사용, 복사한 프롬프트, 복사한 테스트, 복사한 내부 API, 줄 단위 구조 모방
 
-See `AGENTS.md` and `docs/adr/001-clean-room.md` for the detailed rules.
+자세한 규칙은 `AGENTS.md`와 `docs/adr/001-clean-room.md`를 참고하세요.
 
-## Getting started
+## 시작하기
 
-### Requirements
+### 요구 사항
 
 - Go 1.24+
-- An OpenAI API key
+- OpenAI API 키
 
-### Install dependencies
+### 의존성 설치
 
 ```bash
 go mod tidy
 ```
 
-### Save credentials
+### 자격 증명 저장
 
-Either export your API key:
+다음처럼 API 키를 환경 변수로 내보내거나,
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
 ```
 
-Or store it locally:
+다음처럼 로컬에 저장할 수 있습니다.
 
 ```bash
 go run ./cmd/ccagent login --api-key "your-api-key"
 ```
 
-### Sign in with Codex device auth
+### Codex device auth로 로그인
 
 ```bash
 go run ./cmd/ccagent login --device-auth
 ```
 
-This follows the public Codex device-auth flow and stores the resulting token bundle in the local auth file.
+이 방식은 공개된 Codex device-auth 흐름을 따르며, 결과 토큰 묶음을 로컬 auth 파일에 저장합니다.
 
-### Run diagnostics
+### 진단 실행
 
 ```bash
 go run ./cmd/ccagent doctor
 ```
 
-### Start a chat session
+### 채팅 세션 시작
 
 ```bash
 go run ./cmd/ccagent chat
 ```
 
-### Ask one question directly
+### 질문 하나를 바로 실행
 
 ```bash
 go run ./cmd/ccagent chat "Summarize the current repository."
 ```
 
-## Commands
+## 명령어
 
-- `ccagent help` — command overview
-- `ccagent doctor` — local configuration and auth diagnostics
-- `ccagent login --api-key KEY` — persist an API key locally
-- `ccagent login --device-auth` — complete a Codex-compatible device login flow
-- `ccagent config` — print the resolved config
-- `ccagent chat [prompt]` — start an interactive or one-shot session
+- `ccagent help` — 명령어 개요 출력
+- `ccagent doctor` — 로컬 설정 및 인증 상태 진단
+- `ccagent login --api-key KEY` — API 키를 로컬에 저장
+- `ccagent login --device-auth` — Codex 호환 device 로그인 흐름 수행
+- `ccagent config` — 해석된 설정 출력
+- `ccagent chat [prompt]` — 대화형 또는 일회성 세션 시작
 
-## Local data layout
+## 로컬 데이터 구조
 
-ccagent stores local user state under:
+ccagent는 다음 위치에 로컬 사용자 상태를 저장합니다.
 
 ```text
 ~/.config/claudecode-codex/
@@ -100,9 +100,9 @@ ccagent stores local user state under:
 └── transcripts/
 ```
 
-`auth.json` contains bearer credentials and must be treated like a password.
+`auth.json`에는 bearer 자격 증명이 들어 있으므로 비밀번호처럼 취급해야 합니다.
 
-## Development
+## 개발
 
 ```bash
 make fmt
@@ -112,11 +112,11 @@ make build
 
 ## CI
 
-GitHub Actions runs formatting checks, unit tests, linting, and a full build on pushes and pull requests.
+GitHub Actions는 push 및 pull request마다 포맷 검사, 단위 테스트, lint, 전체 빌드를 실행합니다.
 
-## Planned next steps
+## 예정된 다음 단계
 
-- richer transcript and session replay support
-- stronger diff previews for file updates
-- documented alternative auth flows only if OpenAI publishes a supported third-party path
-- GitHub PR automation behind a separate authenticated integration boundary
+- 더 풍부한 transcript 및 세션 재생 지원
+- 파일 수정 시 더 강한 diff 미리보기 제공
+- OpenAI가 지원하는 제3자 경로를 공개할 경우에만 문서화된 대체 인증 흐름 추가
+- 별도 인증 경계를 둔 GitHub PR 자동화
