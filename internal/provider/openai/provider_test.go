@@ -27,7 +27,7 @@ func TestAPIKeyModeUsesResponsesEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(auth.Credentials{AuthMode: auth.ModeAPIKey, OpenAIAPIKey: "sk-test-key"}, "gpt-5.4-mini")
+	client, err := New(auth.Credentials{AuthMode: auth.ModeAPIKey, OpenAIAPIKey: "sk-test-key"}, "gpt-5.4-mini", "", "")
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestChatGPTModeSendsAccountHeaderAndParsesToolCall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(auth.Credentials{AuthMode: auth.ModeChatGPT, Tokens: &auth.TokenData{AccessToken: "access-token", RefreshToken: "refresh-token", IDToken: "ignored", AccountID: "acct-1"}}, "gpt-5.4-mini")
+	client, err := New(auth.Credentials{AuthMode: auth.ModeChatGPT, Tokens: &auth.TokenData{AccessToken: "access-token", RefreshToken: "refresh-token", IDToken: "ignored", AccountID: "acct-1"}}, "gpt-5.4-mini", "", "")
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}

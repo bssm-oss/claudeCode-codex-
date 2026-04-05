@@ -198,7 +198,7 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		return err
 	}
 
-	provider, err := openaiprovider.New(creds, cfg.Model)
+	provider, err := openaiprovider.New(creds, cfg.Model, cfg.OpenAIBaseURL, cfg.ChatGPTBaseURL)
 	if err != nil {
 		return err
 	}

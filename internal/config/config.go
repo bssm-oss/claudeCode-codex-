@@ -16,10 +16,12 @@ const (
 )
 
 type Config struct {
-	Model        string `json:"model"`
-	ApprovalMode string `json:"approval_mode"`
-	Workspace    string `json:"workspace,omitempty"`
-	Transcripts  string `json:"transcripts,omitempty"`
+	Model          string `json:"model"`
+	ApprovalMode   string `json:"approval_mode"`
+	Workspace      string `json:"workspace,omitempty"`
+	Transcripts    string `json:"transcripts,omitempty"`
+	OpenAIBaseURL  string `json:"openai_base_url,omitempty"`
+	ChatGPTBaseURL string `json:"chatgpt_base_url,omitempty"`
 }
 
 type Paths struct {
