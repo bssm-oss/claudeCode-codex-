@@ -31,7 +31,7 @@ See `AGENTS.md` and `docs/adr/001-clean-room.md` for the detailed rules.
 
 ### Requirements
 
-- Go 1.26+
+- Go 1.24+
 - An OpenAI API key
 
 ### Install dependencies
