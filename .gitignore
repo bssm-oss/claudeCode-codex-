@@ -1,0 +1,19 @@
+.DS_Store
+.idea/
+.sisyphus/
+claude-code-upstream/
+bin/
+dist/
+coverage.out
+
+# local credentials and transcripts
+.env
+*.local
+/.config/
+
+# project runtime state
+docs/changes/*.runtime.md
+
+# Go build outputs
+*.test
+*.out
