@@ -7,6 +7,7 @@ ccagent는 OpenAI 및 Codex 호환 백엔드 위에서 동작하는 클린룸(cl
 현재 구현되어 있고 테스트로 확인되는 범위는 아래와 같습니다.
 
 - `chat`, `doctor`, `login`, `config`, `help` CLI 명령
+- `sessions` CLI 명령으로 로컬 transcript 목록/검색
 - API 키 인증과 Codex/ChatGPT device auth 기반 로그인
 - OpenAI Responses API와 Codex 호환 응답 경로 라우팅
 - 워크스페이스 파일 목록, 파일 읽기, 정규식 검색
@@ -101,6 +102,20 @@ go run ./cmd/ccagent doctor
 go run ./cmd/ccagent config
 ```
 
+### 로컬 세션 / transcript 확인
+
+최근 transcript 세션 목록:
+
+```bash
+go run ./cmd/ccagent sessions
+```
+
+특정 키워드 검색:
+
+```bash
+go run ./cmd/ccagent sessions --query codex
+```
+
 ### 대화형 세션 시작
 
 ```bash
@@ -117,6 +132,7 @@ go run ./cmd/ccagent chat "Summarize the current repository."
 
 - `ccagent help` — 명령어 개요 출력
 - `ccagent doctor` — 로컬 설정과 인증 상태 진단
+- `ccagent sessions [--query TEXT] [--limit N]` — 로컬 transcript 세션 목록 또는 검색
 - `ccagent login --api-key KEY` — API 키 저장
 - `ccagent login --device-auth` — Codex 호환 device 로그인 수행
 - `ccagent config` — 해석된 설정 출력
@@ -204,6 +220,16 @@ ccagent는 위험한 동작을 자동으로 밀어붙이지 않습니다.
 - `transcripts/`: JSONL 형식 대화 로그
 
 `auth.json`에는 bearer 자격 증명이 들어 있으므로 비밀번호처럼 다뤄야 합니다.
+
+## 세션 / transcript UX
+
+현재 구현은 로컬 JSONL transcript를 기반으로 다음 UX를 제공합니다.
+
+- 최근 세션 목록 보기
+- transcript 이벤트 타입과 payload 기준 텍스트 검색
+- 각 세션의 시작 시각과 이벤트 수 확인
+
+이 저장소는 아직 공개 Claude Code 문서에 나오는 resume, fork, transcript viewer 탐색, rewind/checkpoint 전체 범위를 구현하지 않습니다. 하지만 로컬 transcript를 읽고 검색하는 기본 세션 UX는 이제 CLI에서 직접 사용할 수 있습니다.
 
 ## 공개 Claude Code 문서 대비 현재 범위
 

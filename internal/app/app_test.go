@@ -229,3 +229,53 @@ func TestChatOneShotRunsConfigAndPluginHooks(t *testing.T) {
 		t.Fatalf("missing hook status in transcript: %s", transcriptText)
 	}
 }
+
+func TestSessionsCommandListsAndSearchesTranscripts(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	paths, err := config.ResolvePaths(homeDir, projectDir)
+	if err != nil {
+		t.Fatalf("resolve paths: %v", err)
+	}
+	if err := os.MkdirAll(paths.TranscriptDir, 0o755); err != nil {
+		t.Fatalf("mkdir transcripts dir: %v", err)
+	}
+	transcript := filepath.Join(paths.TranscriptDir, "sample.jsonl")
+	fixture := strings.Join([]string{
+		`{"time":"2026-04-06T00:00:00Z","type":"user","payload":{"prompt":"hello codex"}}`,
+		`{"time":"2026-04-06T00:00:01Z","type":"assistant","payload":{"content":"world"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(transcript, []byte(fixture), 0o644); err != nil {
+		t.Fatalf("write transcript fixture: %v", err)
+	}
+	if err := config.Save(paths, config.Config{Model: "gpt-5.4-mini", ApprovalMode: "ask", Workspace: projectDir, Transcripts: paths.TranscriptDir}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	oldWD, _ := os.Getwd()
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Chdir(oldWD)
+	})
+	_ = os.Setenv("HOME", homeDir)
+	_ = os.Chdir(projectDir)
+
+	var listOut bytes.Buffer
+	application := New(strings.NewReader(""), &listOut, &listOut)
+	if err := application.Run(context.Background(), []string{"sessions"}); err != nil {
+		t.Fatalf("run sessions: %v", err)
+	}
+	if !strings.Contains(listOut.String(), "events=2") {
+		t.Fatalf("unexpected sessions output: %s", listOut.String())
+	}
+
+	var searchOut bytes.Buffer
+	application = New(strings.NewReader(""), &searchOut, &searchOut)
+	if err := application.Run(context.Background(), []string{"sessions", "--query", "codex"}); err != nil {
+		t.Fatalf("run session search: %v", err)
+	}
+	if !strings.Contains(searchOut.String(), "hello codex") {
+		t.Fatalf("unexpected session search output: %s", searchOut.String())
+	}
+}

@@ -67,6 +67,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return a.runChat(ctx, cfg, paths, prompt)
 	case "doctor":
 		return a.runDoctor(ctx, cfg, paths)
+	case "sessions":
+		return a.runSessions(cfg, args[1:])
 	case "login":
 		return a.runLogin(paths, args[1:])
 	case "config":
@@ -84,6 +86,7 @@ func (a *App) printHelp() error {
 Usage:
   ccagent help
   ccagent doctor
+  ccagent sessions [--query TEXT] [--limit N]
   ccagent login [--api-key KEY] [--device-auth] [--issuer URL] [--client-id ID]
   ccagent config
   ccagent chat [prompt]
@@ -91,6 +94,55 @@ Usage:
 Environment:
   OPENAI_API_KEY   API key for OpenAI-compatible requests`)
 	return err
+}
+
+func (a *App) runSessions(cfg config.Config, args []string) error {
+	query := ""
+	limit := 20
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--query":
+			if i+1 < len(args) {
+				query = args[i+1]
+				i++
+			}
+		case "--limit":
+			if i+1 < len(args) {
+				var parsed int
+				_, _ = fmt.Sscanf(args[i+1], "%d", &parsed)
+				if parsed > 0 {
+					limit = parsed
+				}
+				i++
+			}
+		}
+	}
+	if strings.TrimSpace(query) != "" {
+		matches, err := session.Search(cfg.Transcripts, query, limit)
+		if err != nil {
+			return err
+		}
+		if len(matches) == 0 {
+			_, err := fmt.Fprintln(a.out, "No transcript matches found.")
+			return err
+		}
+		for _, match := range matches {
+			_, _ = fmt.Fprintf(a.out, "%s | %s | %s\n%s\n\n", match.Time.Format(time.RFC3339), match.Type, match.Path, match.Snippet)
+		}
+		return nil
+	}
+	summaries, err := session.List(cfg.Transcripts, limit)
+	if err != nil {
+		return err
+	}
+	if len(summaries) == 0 {
+		_, err := fmt.Fprintln(a.out, "No transcripts found.")
+		return err
+	}
+	for _, summary := range summaries {
+		_, _ = fmt.Fprintf(a.out, "%s | events=%d | %s\n", summary.StartedAt.Format(time.RFC3339), summary.EventCount, summary.Path)
+	}
+	return nil
 }
 
 func (a *App) runDoctor(ctx context.Context, cfg config.Config, paths config.Paths) error {
