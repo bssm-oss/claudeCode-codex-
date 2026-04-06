@@ -139,3 +139,93 @@ func TestChatOneShotWithConfiguredChatGPTBaseURL(t *testing.T) {
 		t.Fatalf("unexpected stdout: %s", stdout.String())
 	}
 }
+
+func TestChatOneShotRunsConfigAndPluginHooks(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":"resp_hooks","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hook test ok"}]}]}`))
+	}))
+	defer server.Close()
+
+	paths, err := config.ResolvePaths(homeDir, projectDir)
+	if err != nil {
+		t.Fatalf("resolve paths: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, ".ccagent", "plugins", "sample"), 0o755); err != nil {
+		t.Fatalf("mkdir plugin dir: %v", err)
+	}
+	manifest := `{
+		"name": "sample-plugin",
+		"hooks": [
+			{"event": "after_model", "command": "printf '%s:%s\n' \"$CCAGENT_HOOK_EVENT\" \"$CCAGENT_HOOK_SOURCE\" >> hook.log"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(projectDir, ".ccagent", "plugins", "sample", "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write plugin manifest: %v", err)
+	}
+	if err := config.Save(paths, config.Config{
+		Model:         "gpt-5.4-mini",
+		ApprovalMode:  "ask",
+		Workspace:     projectDir,
+		Transcripts:   filepath.Join(homeDir, "transcripts"),
+		OpenAIBaseURL: server.URL + "/v1",
+		Hooks: []config.HookConfig{{
+			Event:   "session_start",
+			Command: "printf '%s:%s\n' \"$CCAGENT_HOOK_EVENT\" \"$CCAGENT_HOOK_SOURCE\" >> hook.log",
+		}},
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	if err := auth.NewStore(paths).Save(auth.Credentials{OpenAIAPIKey: "sk-test"}); err != nil {
+		t.Fatalf("save auth: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	oldWD, _ := os.Getwd()
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Chdir(oldWD)
+	})
+	_ = os.Setenv("HOME", homeDir)
+	_ = os.Chdir(projectDir)
+
+	var stdout bytes.Buffer
+	application := New(strings.NewReader("y\ny\n"), &stdout, &stdout)
+	if err := application.Run(context.Background(), []string{"chat", "hello"}); err != nil {
+		t.Fatalf("run chat with hooks: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(projectDir, "hook.log"))
+	if err != nil {
+		t.Fatalf("read hook log: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "session_start:config") {
+		t.Fatalf("missing config hook output: %s", text)
+	}
+	if !strings.Contains(text, "after_model:plugin:sample-plugin") {
+		t.Fatalf("missing plugin hook output: %s", text)
+	}
+
+	transcripts, err := os.ReadDir(filepath.Join(homeDir, "transcripts"))
+	if err != nil {
+		t.Fatalf("read transcripts dir: %v", err)
+	}
+	if len(transcripts) != 1 {
+		t.Fatalf("expected 1 transcript file, got %d", len(transcripts))
+	}
+	transcriptData, err := os.ReadFile(filepath.Join(homeDir, "transcripts", transcripts[0].Name()))
+	if err != nil {
+		t.Fatalf("read transcript file: %v", err)
+	}
+	transcriptText := string(transcriptData)
+	if !strings.Contains(transcriptText, `"command":"printf '%s:%s\n' \"$CCAGENT_HOOK_EVENT\" \"$CCAGENT_HOOK_SOURCE\"`) {
+		t.Fatalf("missing hook command in transcript: %s", transcriptText)
+	}
+	if !strings.Contains(transcriptText, `"status":"completed"`) {
+		t.Fatalf("missing hook status in transcript: %s", transcriptText)
+	}
+}

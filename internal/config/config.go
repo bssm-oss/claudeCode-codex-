@@ -16,23 +16,32 @@ const (
 )
 
 type Config struct {
-	Model          string `json:"model"`
-	ApprovalMode   string `json:"approval_mode"`
-	Workspace      string `json:"workspace,omitempty"`
-	Transcripts    string `json:"transcripts,omitempty"`
-	OpenAIBaseURL  string `json:"openai_base_url,omitempty"`
-	ChatGPTBaseURL string `json:"chatgpt_base_url,omitempty"`
+	Model          string       `json:"model"`
+	ApprovalMode   string       `json:"approval_mode"`
+	Workspace      string       `json:"workspace,omitempty"`
+	Transcripts    string       `json:"transcripts,omitempty"`
+	OpenAIBaseURL  string       `json:"openai_base_url,omitempty"`
+	ChatGPTBaseURL string       `json:"chatgpt_base_url,omitempty"`
+	Hooks          []HookConfig `json:"hooks,omitempty"`
+	PluginDirs     []string     `json:"plugin_dirs,omitempty"`
+}
+
+type HookConfig struct {
+	Event   string `json:"event"`
+	Command string `json:"command"`
 }
 
 type Paths struct {
-	HomeDir        string
-	ConfigDir      string
-	ConfigFile     string
-	AuthFile       string
-	TranscriptDir  string
-	ChangeLogDir   string
-	DocsDir        string
-	ProjectRootDir string
+	HomeDir          string
+	ConfigDir        string
+	ConfigFile       string
+	AuthFile         string
+	TranscriptDir    string
+	PluginDir        string
+	ProjectPluginDir string
+	ChangeLogDir     string
+	DocsDir          string
+	ProjectRootDir   string
 }
 
 func ResolvePaths(homeDir, projectRoot string) (Paths, error) {
@@ -44,14 +53,16 @@ func ResolvePaths(homeDir, projectRoot string) (Paths, error) {
 	transcripts := filepath.Join(configDir, "transcripts")
 
 	return Paths{
-		HomeDir:        homeDir,
-		ConfigDir:      configDir,
-		ConfigFile:     filepath.Join(configDir, "config.json"),
-		AuthFile:       filepath.Join(configDir, "auth.json"),
-		TranscriptDir:  transcripts,
-		ChangeLogDir:   filepath.Join(projectRoot, "docs", "changes"),
-		DocsDir:        filepath.Join(projectRoot, "docs"),
-		ProjectRootDir: projectRoot,
+		HomeDir:          homeDir,
+		ConfigDir:        configDir,
+		ConfigFile:       filepath.Join(configDir, "config.json"),
+		AuthFile:         filepath.Join(configDir, "auth.json"),
+		TranscriptDir:    transcripts,
+		PluginDir:        filepath.Join(configDir, "plugins"),
+		ProjectPluginDir: filepath.Join(projectRoot, ".ccagent", "plugins"),
+		ChangeLogDir:     filepath.Join(projectRoot, "docs", "changes"),
+		DocsDir:          filepath.Join(projectRoot, "docs"),
+		ProjectRootDir:   projectRoot,
 	}, nil
 }
 
@@ -69,6 +80,7 @@ func Load(paths Paths, projectRoot string) (Config, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			cfg.Transcripts = paths.TranscriptDir
+			cfg.PluginDirs = []string{paths.PluginDir, paths.ProjectPluginDir}
 			return cfg, nil
 		}
 		return Config{}, fmt.Errorf("read config: %w", err)
@@ -89,6 +101,9 @@ func Load(paths Paths, projectRoot string) (Config, error) {
 	}
 	if strings.TrimSpace(cfg.Transcripts) == "" {
 		cfg.Transcripts = paths.TranscriptDir
+	}
+	if len(cfg.PluginDirs) == 0 {
+		cfg.PluginDirs = []string{paths.PluginDir, paths.ProjectPluginDir}
 	}
 
 	return cfg, nil

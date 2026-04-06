@@ -14,6 +14,7 @@ import (
 
 	"github.com/bssm-oss/claudeCode-codex-/internal/auth"
 	"github.com/bssm-oss/claudeCode-codex-/internal/config"
+	"github.com/bssm-oss/claudeCode-codex-/internal/extensions"
 	openaiprovider "github.com/bssm-oss/claudeCode-codex-/internal/provider/openai"
 	"github.com/bssm-oss/claudeCode-codex-/internal/session"
 	"github.com/bssm-oss/claudeCode-codex-/internal/vcs"
@@ -213,13 +214,22 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		return err
 	}
 	defer func() { _ = transcript.Close() }()
+	hooks, err := extensions.LoadHooks(cfg)
+	if err != nil {
+		return err
+	}
 
 	gitClient := vcs.New(cfg.Workspace)
 	reader := bufio.NewReader(a.in)
 	previousResponseID := ""
+	if err := a.runHooks(ctx, reader, ws, transcript, hooks, "session_start", map[string]string{
+		"CCAGENT_TRANSCRIPT_PATH": transcript.Path(),
+	}); err != nil {
+		return err
+	}
 
 	if strings.TrimSpace(initialPrompt) != "" {
-		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &previousResponseID, initialPrompt)
+		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, &previousResponseID, initialPrompt)
 	}
 
 	_, _ = fmt.Fprintln(a.out, "ccagent chat started. Type /exit to leave.")
@@ -240,7 +250,7 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		if prompt == "/exit" || prompt == "/quit" {
 			return nil
 		}
-		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, &previousResponseID, prompt); err != nil {
+		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, &previousResponseID, prompt); err != nil {
 			return err
 		}
 	}
@@ -253,10 +263,16 @@ func (a *App) runTurn(
 	ws workspace.Workspace,
 	gitClient vcs.Git,
 	transcript *session.Transcript,
+	hooks []extensions.Hook,
 	previousResponseID *string,
 	prompt string,
 ) error {
 	_ = transcript.Append("user", map[string]string{"prompt": prompt})
+	if err := a.runHooks(ctx, reader, ws, transcript, hooks, "before_model", map[string]string{
+		"CCAGENT_PROMPT": prompt,
+	}); err != nil {
+		return err
+	}
 	tools := toolDefinitions()
 	input := openaiprovider.TurnInput{PreviousResponseID: *previousResponseID, Prompt: prompt}
 
@@ -273,24 +289,93 @@ func (a *App) runTurn(
 			if result.Text != "" {
 				_, _ = fmt.Fprintln(a.out, result.Text)
 				_ = transcript.Append("assistant", map[string]string{"content": result.Text})
+				if err := a.runHooks(ctx, reader, ws, transcript, hooks, "after_model", map[string]string{
+					"CCAGENT_PROMPT":    prompt,
+					"CCAGENT_ASSISTANT": result.Text,
+				}); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
 
 		toolOutputs := make([]openaiprovider.ToolOutput, 0, len(result.ToolCalls))
 		for _, call := range result.ToolCalls {
+			if err := a.runHooks(ctx, reader, ws, transcript, hooks, "before_tool", map[string]string{
+				"CCAGENT_TOOL_NAME": call.Name,
+				"CCAGENT_PROMPT":    prompt,
+			}); err != nil {
+				return err
+			}
 			toolOutput, err := a.executeTool(ctx, reader, ws, gitClient, call)
 			if err != nil {
 				toolOutput = fmt.Sprintf("tool error: %v", err)
 			}
 			_, _ = fmt.Fprintf(a.out, "[tool:%s]\n%s\n", call.Name, toolOutput)
 			_ = transcript.Append("tool", map[string]string{"name": call.Name, "output": toolOutput})
+			if err := a.runHooks(ctx, reader, ws, transcript, hooks, "after_tool", map[string]string{
+				"CCAGENT_TOOL_NAME":   call.Name,
+				"CCAGENT_TOOL_OUTPUT": toolOutput,
+				"CCAGENT_PROMPT":      prompt,
+			}); err != nil {
+				return err
+			}
 			toolOutputs = append(toolOutputs, openaiprovider.ToolOutput{CallID: call.ID, Output: toolOutput})
 		}
 		input = openaiprovider.TurnInput{PreviousResponseID: result.ResponseID, ToolOutputs: toolOutputs}
 	}
 
 	return errors.New("model exceeded tool loop limit")
+}
+
+func (a *App) runHooks(ctx context.Context, reader *bufio.Reader, ws workspace.Workspace, transcript *session.Transcript, hooks []extensions.Hook, event string, values map[string]string) error {
+	for _, hook := range hooks {
+		if hook.Event != event {
+			continue
+		}
+		if err := a.confirm(reader, fmt.Sprintf("Run hook %s from %s? %s", hook.Event, hook.Source, hook.Command)); err != nil {
+			_ = transcript.Append("hook", map[string]string{
+				"event":   hook.Event,
+				"source":  hook.Source,
+				"command": hook.Command,
+				"status":  "rejected",
+				"error":   err.Error(),
+			})
+			return err
+		}
+		env := os.Environ()
+		env = append(env,
+			"CCAGENT_HOOK_EVENT="+hook.Event,
+			"CCAGENT_HOOK_SOURCE="+hook.Source,
+			"CCAGENT_WORKSPACE="+ws.Root,
+		)
+		for key, value := range values {
+			env = append(env, key+"="+value)
+		}
+		hookCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		cmd := exec.CommandContext(hookCtx, "sh", "-lc", hook.Command)
+		cmd.Dir = ws.Root
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		cancel()
+		text := string(out)
+		_, _ = fmt.Fprintf(a.out, "[hook:%s:%s]\n%s\n", hook.Event, hook.Source, text)
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		_ = transcript.Append("hook", map[string]string{
+			"event":   hook.Event,
+			"source":  hook.Source,
+			"command": hook.Command,
+			"output":  text,
+			"status":  status,
+		})
+		if err != nil {
+			return fmt.Errorf("hook %s (%s) failed: %w", hook.Event, hook.Source, err)
+		}
+	}
+	return nil
 }
 
 func (a *App) executeTool(ctx context.Context, reader *bufio.Reader, ws workspace.Workspace, gitClient vcs.Git, call openaiprovider.ToolCall) (string, error) {
