@@ -8,3 +8,4 @@
 - documented `go install` usage and added GitHub release packaging for downloadable binaries and checksums
 - added a minimal clean-room hooks/plugins foundation with approval-gated hook execution
 - added local transcript session listing and transcript search via `ccagent sessions`
+- added local continue/resume session UX with saved session names and response-chain persistence

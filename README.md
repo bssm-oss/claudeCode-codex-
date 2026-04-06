@@ -7,7 +7,7 @@ ccagent는 OpenAI 및 Codex 호환 백엔드 위에서 동작하는 클린룸(cl
 현재 구현되어 있고 테스트로 확인되는 범위는 아래와 같습니다.
 
 - `chat`, `doctor`, `login`, `config`, `help` CLI 명령
-- `sessions` CLI 명령으로 로컬 transcript 목록/검색
+- `sessions`, `continue`, `resume` CLI 명령으로 로컬 session 지속성 UX 제공
 - API 키 인증과 Codex/ChatGPT device auth 기반 로그인
 - OpenAI Responses API와 Codex 호환 응답 경로 라우팅
 - 워크스페이스 파일 목록, 파일 읽기, 정규식 검색
@@ -116,6 +116,27 @@ go run ./cmd/ccagent sessions
 go run ./cmd/ccagent sessions --query codex
 ```
 
+세션 이름 변경:
+
+```bash
+go run ./cmd/ccagent sessions --rename 20260407-010203 main-chat
+```
+
+가장 최근 세션 이어가기:
+
+```bash
+go run ./cmd/ccagent continue
+```
+
+특정 세션 이어가기:
+
+```bash
+go run ./cmd/ccagent resume main-chat
+go run ./cmd/ccagent continue 20260407-010203 "follow up"
+```
+
+`continue`나 `resume`에 인자를 하나만 주면 그 값은 **세션 선택자(ID 또는 이름)** 로 해석합니다. 최신 세션을 그냥 이어가려면 인자 없이 실행하고, 특정 세션에 바로 후속 프롬프트를 넣고 싶으면 `continue <id-or-name> "prompt"` 형태를 사용합니다.
+
 ### 대화형 세션 시작
 
 ```bash
@@ -131,8 +152,10 @@ go run ./cmd/ccagent chat "Summarize the current repository."
 ## 명령어 요약
 
 - `ccagent help` — 명령어 개요 출력
+- `ccagent continue [session-id-or-name] [prompt]` — 가장 최근 또는 지정 세션 이어가기
+- `ccagent resume [session-id-or-name] [prompt]` — `continue`와 동일한 session resume 별칭
 - `ccagent doctor` — 로컬 설정과 인증 상태 진단
-- `ccagent sessions [--query TEXT] [--limit N]` — 로컬 transcript 세션 목록 또는 검색
+- `ccagent sessions [--query TEXT] [--limit N] [--rename ID NAME]` — 로컬 세션 목록, 검색, 이름 변경
 - `ccagent login --api-key KEY` — API 키 저장
 - `ccagent login --device-auth` — Codex 호환 device 로그인 수행
 - `ccagent config` — 해석된 설정 출력
@@ -213,10 +236,13 @@ ccagent는 위험한 동작을 자동으로 밀어붙이지 않습니다.
 ├── auth.json
 ├── config.json
 └── transcripts/
+    ├── sessions.json
+    └── *.jsonl
 ```
 
 - `auth.json`: API 키 또는 Codex/ChatGPT 토큰
 - `config.json`: 모델, 워크스페이스, 승인 모드 등
+- `transcripts/sessions.json`: 이어가기 가능한 세션 인덱스와 최근 response chain 정보
 - `transcripts/`: JSONL 형식 대화 로그
 
 `auth.json`에는 bearer 자격 증명이 들어 있으므로 비밀번호처럼 다뤄야 합니다.
@@ -227,9 +253,13 @@ ccagent는 위험한 동작을 자동으로 밀어붙이지 않습니다.
 
 - 최근 세션 목록 보기
 - transcript 이벤트 타입과 payload 기준 텍스트 검색
+- 세션 ID/이름 기반 이어가기
+- 세션 이름 부여 및 이름으로 resume
 - 각 세션의 시작 시각과 이벤트 수 확인
 
-이 저장소는 아직 공개 Claude Code 문서에 나오는 resume, fork, transcript viewer 탐색, rewind/checkpoint 전체 범위를 구현하지 않습니다. 하지만 로컬 transcript를 읽고 검색하는 기본 세션 UX는 이제 CLI에서 직접 사용할 수 있습니다.
+`sessions` 목록에 `[legacy]`가 붙은 항목은 예전 transcript만 있고 연속 실행용 session index가 없는 항목이라서 검색은 가능하지만 `continue`/`resume` 대상은 아닙니다.
+
+이 저장소는 아직 공개 Claude Code 문서에 나오는 fork, transcript viewer 탐색, rewind/checkpoint 전체 범위를 구현하지 않습니다. 하지만 로컬 transcript를 읽고 검색하고, 최근/지정 세션을 이어가는 기본 세션 UX는 이제 CLI에서 직접 사용할 수 있습니다.
 
 ## 공개 Claude Code 문서 대비 현재 범위
 

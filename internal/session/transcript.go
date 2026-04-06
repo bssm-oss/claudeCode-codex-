@@ -43,13 +43,24 @@ func New(dir string) (*Transcript, error) {
 		return nil, fmt.Errorf("create transcript dir: %w", err)
 	}
 
-	name := time.Now().Format("20060102-150405") + ".jsonl"
+	name := time.Now().UTC().Format("20060102-150405.000000000") + ".jsonl"
 	path := filepath.Join(dir, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open transcript: %w", err)
 	}
 
+	return &Transcript{path: path, file: file}, nil
+}
+
+func Open(path string) (*Transcript, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create transcript dir: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open transcript: %w", err)
+	}
 	return &Transcript{path: path, file: file}, nil
 }
 

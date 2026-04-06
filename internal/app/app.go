@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,6 +66,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 			prompt = strings.Join(args[1:], " ")
 		}
 		return a.runChat(ctx, cfg, paths, prompt)
+	case "continue", "resume":
+		return a.runContinue(ctx, cfg, paths, args[1:])
 	case "doctor":
 		return a.runDoctor(ctx, cfg, paths)
 	case "sessions":
@@ -85,8 +88,10 @@ func (a *App) printHelp() error {
 
 Usage:
   ccagent help
+  ccagent continue [session-id-or-name] [prompt]
+  ccagent resume [session-id-or-name] [prompt]
   ccagent doctor
-  ccagent sessions [--query TEXT] [--limit N]
+  ccagent sessions [--query TEXT] [--limit N] [--rename ID NAME]
   ccagent login [--api-key KEY] [--device-auth] [--issuer URL] [--client-id ID]
   ccagent config
   ccagent chat [prompt]
@@ -99,6 +104,8 @@ Environment:
 func (a *App) runSessions(cfg config.Config, args []string) error {
 	query := ""
 	limit := 20
+	renameID := ""
+	renameValue := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--query":
@@ -115,7 +122,20 @@ func (a *App) runSessions(cfg config.Config, args []string) error {
 				}
 				i++
 			}
+		case "--rename":
+			if i+2 < len(args) {
+				renameID = args[i+1]
+				renameValue = args[i+2]
+				i += 2
+			}
 		}
+	}
+	if strings.TrimSpace(renameID) != "" {
+		if err := session.Rename(cfg.Transcripts, renameID, renameValue); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(a.out, "Renamed session %s to %s\n", renameID, strings.TrimSpace(renameValue))
+		return err
 	}
 	if strings.TrimSpace(query) != "" {
 		matches, err := session.Search(cfg.Transcripts, query, limit)
@@ -131,18 +151,50 @@ func (a *App) runSessions(cfg config.Config, args []string) error {
 		}
 		return nil
 	}
-	summaries, err := session.List(cfg.Transcripts, limit)
+	views, err := session.Views(cfg.Transcripts, limit)
 	if err != nil {
 		return err
 	}
-	if len(summaries) == 0 {
+	if len(views) == 0 {
 		_, err := fmt.Fprintln(a.out, "No transcripts found.")
 		return err
 	}
-	for _, summary := range summaries {
-		_, _ = fmt.Fprintf(a.out, "%s | events=%d | %s\n", summary.StartedAt.Format(time.RFC3339), summary.EventCount, summary.Path)
+	for _, view := range views {
+		label := view.ID
+		if strings.TrimSpace(view.Name) != "" {
+			label += " (" + view.Name + ")"
+		}
+		if !view.Resumable {
+			label += " [legacy]"
+		}
+		_, _ = fmt.Fprintf(a.out, "%s | events=%d | %s | %s\n", view.StartedAt.Format(time.RFC3339), view.EventCount, label, view.TranscriptPath)
 	}
 	return nil
+}
+
+func (a *App) runContinue(ctx context.Context, cfg config.Config, paths config.Paths, args []string) error {
+	target := ""
+	prompt := ""
+	if len(args) > 0 {
+		target = args[0]
+	}
+	if len(args) > 1 {
+		prompt = strings.Join(args[1:], " ")
+	}
+	var state session.State
+	var err error
+	if strings.TrimSpace(target) == "" {
+		state, err = session.Latest(cfg.Transcripts)
+	} else {
+		state, err = session.Get(cfg.Transcripts, target)
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(state.Workspace) != "" && state.Workspace != cfg.Workspace {
+		return fmt.Errorf("session %s belongs to workspace %s", state.ID, state.Workspace)
+	}
+	return a.runChatWithState(ctx, cfg, paths, prompt, &state)
 }
 
 func (a *App) runDoctor(ctx context.Context, cfg config.Config, paths config.Paths) error {
@@ -245,6 +297,10 @@ func (a *App) runConfig(paths config.Paths, cfg config.Config) error {
 }
 
 func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths, initialPrompt string) error {
+	return a.runChatWithState(ctx, cfg, paths, initialPrompt, nil)
+}
+
+func (a *App) runChatWithState(ctx context.Context, cfg config.Config, paths config.Paths, initialPrompt string, state *session.State) error {
 	store := auth.NewStore(paths)
 	creds, err := store.Load(environmentMap())
 	if err != nil {
@@ -261,11 +317,34 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		return err
 	}
 
-	transcript, err := session.New(cfg.Transcripts)
+	var transcript *session.Transcript
+	if state != nil {
+		transcript, err = session.Open(state.TranscriptPath)
+	} else {
+		transcript, err = session.New(cfg.Transcripts)
+	}
 	if err != nil {
 		return err
 	}
 	defer func() { _ = transcript.Close() }()
+	if state == nil {
+		started, err := session.Start(cfg.Transcripts, cfg.Workspace, transcript.Path())
+		if err != nil {
+			return err
+		}
+		state = &started
+	}
+	action := "resumed"
+	if strings.TrimSpace(state.LastResponseID) == "" && state.TranscriptPath == transcript.Path() {
+		action = "started"
+	}
+	_ = transcript.Append("session", map[string]string{
+		"action":               action,
+		"session_id":           state.ID,
+		"session_name":         state.Name,
+		"workspace":            cfg.Workspace,
+		"previous_response_id": state.LastResponseID,
+	})
 	hooks, err := extensions.LoadHooks(cfg)
 	if err != nil {
 		return err
@@ -273,19 +352,26 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 
 	gitClient := vcs.New(cfg.Workspace)
 	reader := bufio.NewReader(a.in)
-	previousResponseID := ""
+	previousResponseID := state.LastResponseID
 	if err := a.runHooks(ctx, reader, ws, transcript, hooks, "session_start", map[string]string{
 		"CCAGENT_TRANSCRIPT_PATH": transcript.Path(),
 	}); err != nil {
 		return err
 	}
+	if state != nil && state.ID != "" {
+		label := state.ID
+		if strings.TrimSpace(state.Name) != "" {
+			label += " (" + state.Name + ")"
+		}
+		_, _ = fmt.Fprintf(a.out, "Session: %s\n", label)
+	}
+	_, _ = fmt.Fprintf(a.out, "Transcript: %s\n", transcript.Path())
 
 	if strings.TrimSpace(initialPrompt) != "" {
-		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, &previousResponseID, initialPrompt)
+		return a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, state, &previousResponseID, initialPrompt)
 	}
 
 	_, _ = fmt.Fprintln(a.out, "ccagent chat started. Type /exit to leave.")
-	_, _ = fmt.Fprintf(a.out, "Transcript: %s\n", transcript.Path())
 	for {
 		_, _ = fmt.Fprint(a.out, "> ")
 		line, err := reader.ReadString('\n')
@@ -302,7 +388,7 @@ func (a *App) runChat(ctx context.Context, cfg config.Config, paths config.Paths
 		if prompt == "/exit" || prompt == "/quit" {
 			return nil
 		}
-		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, &previousResponseID, prompt); err != nil {
+		if err := a.runTurn(ctx, reader, provider, ws, gitClient, transcript, hooks, state, &previousResponseID, prompt); err != nil {
 			return err
 		}
 	}
@@ -316,6 +402,7 @@ func (a *App) runTurn(
 	gitClient vcs.Git,
 	transcript *session.Transcript,
 	hooks []extensions.Hook,
+	state *session.State,
 	previousResponseID *string,
 	prompt string,
 ) error {
@@ -336,6 +423,17 @@ func (a *App) runTurn(
 			return err
 		}
 		*previousResponseID = result.ResponseID
+		if state != nil && strings.TrimSpace(result.ResponseID) != "" {
+			if err := session.UpdateResponse(filepath.Dir(transcript.Path()), state.ID, result.ResponseID); err != nil {
+				return err
+			}
+			state.LastResponseID = result.ResponseID
+			_ = transcript.Append("session", map[string]string{
+				"action":      "response_checkpoint",
+				"session_id":  state.ID,
+				"response_id": result.ResponseID,
+			})
+		}
 
 		if len(result.ToolCalls) == 0 {
 			if result.Text != "" {
